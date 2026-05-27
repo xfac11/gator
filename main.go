@@ -7,6 +7,26 @@ import (
 	"github.com/xfac11/gator/internal/config"
 )
 
+type state struct {
+	configHandler *config.Config
+}
+
+type command struct {
+	name      string
+	arguments []string
+}
+
+func handlerLogin(s *state, cmd command) error {
+	if len(cmd.arguments) == 0 {
+		return fmt.Errorf("Argument slice empty. Excepts one argument")
+	}
+	err := s.configHandler.SetUser(cmd.arguments[0])
+	if err != nil {
+		return err
+	}
+	fmt.Println("User has been set to:", cmd.arguments[0])
+	return nil
+}
 func main() {
 	cfg, err := config.Read()
 	if err != nil {
