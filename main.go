@@ -38,6 +38,31 @@ func (c *commands) run(s *state, cmd command) error {
 func (c *commands) register(name string, f func(*state, command) error) {
 	c.plan[name] = f
 }
+
+func handlerUsers(s *state, cmd command) error {
+	users, err := s.db.GetUsers(context.Background())
+	if err != nil {
+		return fmt.Errorf("Could not retrieve users. Error:", err)
+	}
+	for _, user := range users {
+		text := "* "
+		text += user.Name
+		if user.Name == s.configHandler.CurrentUserName {
+			text += " (current)"
+		}
+		fmt.Println(text)
+	}
+	return nil
+}
+
+func handlerReset(s *state, cmd command) error {
+	err := s.db.DeleteAllUsers(context.Background())
+	if err != nil {
+		return fmt.Errorf("could not reset and remove all users. error: %w", err)
+	}
+	fmt.Println("Successfully removed all users")
+	return nil
+}
 func handlerLogin(s *state, cmd command) error {
 	if len(cmd.arguments) == 0 {
 		return fmt.Errorf("error: Excepts one username as argument")
@@ -102,6 +127,8 @@ func main() {
 		plan: map[string]func(*state, command) error{},
 	}
 
+	commands.register("users", handlerUsers)
+	commands.register("reset", handlerReset)
 	commands.register("login", handlerLogin)
 	commands.register("register", handlerRegister)
 	if len(os.Args) < 2 {
