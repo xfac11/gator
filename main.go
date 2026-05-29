@@ -42,7 +42,7 @@ func (c *commands) register(name string, f func(*state, command) error) {
 func handlerUsers(s *state, cmd command) error {
 	users, err := s.db.GetUsers(context.Background())
 	if err != nil {
-		return fmt.Errorf("Could not retrieve users. Error:", err)
+		return fmt.Errorf("Could not retrieve users. Error: %w", err)
 	}
 	for _, user := range users {
 		text := "* "
