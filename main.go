@@ -11,6 +11,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/xfac11/gator/internal/config"
 	"github.com/xfac11/gator/internal/database"
+	"github.com/xfac11/gator/internal/feed"
 )
 
 type state struct {
@@ -37,6 +38,27 @@ func (c *commands) run(s *state, cmd command) error {
 
 func (c *commands) register(name string, f func(*state, command) error) {
 	c.plan[name] = f
+}
+
+func handlerAgg(s *state, cmd command) error {
+	url := "https://www.wagslane.dev/index.xml"
+
+	rssFeed, err := feed.FetchFeed(context.Background(), url)
+
+	if err != nil {
+		return fmt.Errorf("Could not fecth feed. Error: %w", err)
+	}
+
+	fmt.Println(rssFeed.Channel.Title)
+	fmt.Println(rssFeed.Channel.Link)
+	fmt.Println(rssFeed.Channel.Description)
+	for _, item := range rssFeed.Channel.Item {
+		fmt.Println(item.Title)
+		fmt.Println(item.Link)
+		fmt.Println(item.PubDate)
+		fmt.Println(item.Description)
+	}
+	return nil
 }
 
 func handlerUsers(s *state, cmd command) error {
@@ -131,6 +153,7 @@ func main() {
 	commands.register("reset", handlerReset)
 	commands.register("login", handlerLogin)
 	commands.register("register", handlerRegister)
+	commands.register("agg", handlerAgg)
 	if len(os.Args) < 2 {
 		fmt.Println("No command given")
 		os.Exit(1)
