@@ -40,6 +40,58 @@ func (c *commands) register(name string, f func(*state, command) error) {
 	c.plan[name] = f
 }
 
+func handlerFeeds(s *state, cmd command) error {
+	feeds, err := s.db.GetFeeds(context.Background())
+	if err != nil {
+		return fmt.Errorf("Could not retrieve all feeds from the database. Error: %w", err)
+	}
+
+	fmt.Println("|", "Name", "|", "URL", "|", "Username", "|")
+	for _, feed := range feeds {
+		fmt.Println("|", feed.Name, "|", feed.Url, "|", feed.UserName, "|")
+	}
+
+	return nil
+}
+
+func handlerAddFeed(s *state, cmd command) error {
+	if len(cmd.arguments) < 2 {
+		return fmt.Errorf("Excepts two arguments (name, url) but %d was given", len(cmd.arguments))
+	}
+	name := cmd.arguments[0]
+	url := cmd.arguments[1]
+
+	currentUserName := s.configHandler.CurrentUserName
+	currentUser, err := s.db.GetUser(context.Background(), currentUserName)
+	if err != nil {
+		return fmt.Errorf("Could not retrieve the current user. Error: %w", err)
+	}
+	userId := currentUser.ID
+
+	feedParams := database.CreateFeedParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Name:      name,
+		Url:       url,
+		UserID:    userId,
+	}
+	feed, err := s.db.CreateFeed(context.Background(), feedParams)
+	if err != nil {
+		return fmt.Errorf("Could not create a feed in the database. Error: %w", err)
+	}
+
+	fmt.Println("{")
+	fmt.Println(" id:", feed.ID)
+	fmt.Println(" created_at:", feed.CreatedAt)
+	fmt.Println(" updated_at:", feed.UpdatedAt)
+	fmt.Println(" name:", feed.Name)
+	fmt.Println(" url:", feed.Url)
+	fmt.Println(" user_id:", feed.UserID)
+	fmt.Println("}")
+
+	return nil
+}
 func handlerAgg(s *state, cmd command) error {
 	url := "https://www.wagslane.dev/index.xml"
 
@@ -154,6 +206,8 @@ func main() {
 	commands.register("login", handlerLogin)
 	commands.register("register", handlerRegister)
 	commands.register("agg", handlerAgg)
+	commands.register("addfeed", handlerAddFeed)
+	commands.register("feeds", handlerFeeds)
 	if len(os.Args) < 2 {
 		fmt.Println("No command given")
 		os.Exit(1)
