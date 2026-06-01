@@ -239,6 +239,7 @@ func main() {
 	commands.register("agg", handlerAgg)
 	commands.register("addfeed", handlerAddFeed)
 	commands.register("feeds", handlerFeeds)
+	commands.register("follow", handlerFollow)
 	if len(os.Args) < 2 {
 		fmt.Println("No command given")
 		os.Exit(1)
