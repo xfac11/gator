@@ -39,17 +39,56 @@ func (c *commands) run(s *state, cmd command) error {
 func (c *commands) register(name string, f func(*state, command) error) {
 	c.plan[name] = f
 }
+func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
+	return func(s *state, cmd command) error {
+		currentUserName := s.configHandler.CurrentUserName
+		currentUser, err := s.db.GetUser(context.Background(), currentUserName)
+		if err != nil {
+			return fmt.Errorf("Could not retrieve user. Error: %w", err)
+		}
+		return handler(s, cmd, currentUser)
+	}
+}
 
-func handlerFollow(s *state, cmd command) error {
+func handlerUnfollow(s *state, cmd command, user database.User) error {
+	if len(cmd.arguments) != 1 {
+		return fmt.Errorf("Excepts one argument (url) but %d was given", len(cmd.arguments))
+	}
+
+	feed, err := s.db.GetFeed(context.Background(), cmd.arguments[0])
+	if err != nil {
+		return fmt.Errorf("Could not find that feed with the given url")
+	}
+
+	deleteParams := database.DeleteFeedFollowParams{
+		UserID: user.ID,
+		FeedID: feed.ID,
+	}
+	err = s.db.DeleteFeedFollow(context.Background(), deleteParams)
+	if err != nil {
+		return fmt.Errorf("No feed with that user combination exists")
+	}
+
+	return nil
+}
+
+func handlerFollowing(s *state, cmd command, user database.User) error {
+	following, err := s.db.GetFeedFollowsForUser(context.Background(), user.ID)
+	if err != nil {
+		return fmt.Errorf("Could not retrieve user following. Error: %w", err)
+	}
+
+	for _, feed := range following {
+		fmt.Println(feed)
+	}
+	return nil
+}
+
+func handlerFollow(s *state, cmd command, user database.User) error {
 	if len(cmd.arguments) != 1 {
 		return fmt.Errorf("Excepts one argument (url) but %d was given", len(cmd.arguments))
 	}
 	url := cmd.arguments[0]
-
-	user, err := s.db.GetUser(context.Background(), s.configHandler.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("Could not retrieve current user from the database")
-	}
 
 	feed, err := s.db.GetFeed(context.Background(), url)
 	if err != nil {
@@ -85,19 +124,12 @@ func handlerFeeds(s *state, cmd command) error {
 	return nil
 }
 
-func handlerAddFeed(s *state, cmd command) error {
+func handlerAddFeed(s *state, cmd command, user database.User) error {
 	if len(cmd.arguments) < 2 {
 		return fmt.Errorf("Excepts two arguments (name, url) but %d was given", len(cmd.arguments))
 	}
 	name := cmd.arguments[0]
 	url := cmd.arguments[1]
-
-	currentUserName := s.configHandler.CurrentUserName
-	currentUser, err := s.db.GetUser(context.Background(), currentUserName)
-	if err != nil {
-		return fmt.Errorf("Could not retrieve the current user. Error: %w", err)
-	}
-	userId := currentUser.ID
 
 	feedParams := database.CreateFeedParams{
 		ID:        uuid.New(),
@@ -105,13 +137,24 @@ func handlerAddFeed(s *state, cmd command) error {
 		UpdatedAt: time.Now(),
 		Name:      name,
 		Url:       url,
-		UserID:    userId,
+		UserID:    user.ID,
 	}
 	feed, err := s.db.CreateFeed(context.Background(), feedParams)
 	if err != nil {
 		return fmt.Errorf("Could not create a feed in the database. Error: %w", err)
 	}
 
+	arg := database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID:    user.ID,
+		FeedID:    feed.ID,
+	}
+	_, err = s.db.CreateFeedFollow(context.Background(), arg)
+	if err != nil {
+		return fmt.Errorf("Could not create feed follow. Error: %w", err)
+	}
 	fmt.Println("{")
 	fmt.Println(" id:", feed.ID)
 	fmt.Println(" created_at:", feed.CreatedAt)
@@ -237,9 +280,11 @@ func main() {
 	commands.register("login", handlerLogin)
 	commands.register("register", handlerRegister)
 	commands.register("agg", handlerAgg)
-	commands.register("addfeed", handlerAddFeed)
+	commands.register("addfeed", middlewareLoggedIn(handlerAddFeed))
 	commands.register("feeds", handlerFeeds)
-	commands.register("follow", handlerFollow)
+	commands.register("follow", middlewareLoggedIn(handlerFollow))
+	commands.register("following", middlewareLoggedIn(handlerFollowing))
+	commands.register("unfollow", middlewareLoggedIn(handlerUnfollow))
 	if len(os.Args) < 2 {
 		fmt.Println("No command given")
 		os.Exit(1)
