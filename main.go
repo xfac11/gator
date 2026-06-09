@@ -11,7 +11,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/xfac11/gator/internal/config"
 	"github.com/xfac11/gator/internal/database"
-	"github.com/xfac11/gator/internal/feed"
+	rssfeed "github.com/xfac11/gator/internal/feed"
 )
 
 type state struct {
@@ -167,24 +167,24 @@ func handlerAddFeed(s *state, cmd command, user database.User) error {
 	return nil
 }
 func handlerAgg(s *state, cmd command) error {
-	url := "https://www.wagslane.dev/index.xml"
 
-	rssFeed, err := feed.FetchFeed(context.Background(), url)
+	if len(cmd.arguments) != 1 {
+		return fmt.Errorf("Excepts one argument (time between requests) but %d was given.", len(cmd.arguments))
+	}
 
+	timeBetweenReqs, err := time.ParseDuration(cmd.arguments[0])
 	if err != nil {
-		return fmt.Errorf("Could not fecth feed. Error: %w", err)
+		return fmt.Errorf("Non valid time given")
 	}
+	fmt.Println("Collecting feeds every", cmd.arguments[0])
 
-	fmt.Println(rssFeed.Channel.Title)
-	fmt.Println(rssFeed.Channel.Link)
-	fmt.Println(rssFeed.Channel.Description)
-	for _, item := range rssFeed.Channel.Item {
-		fmt.Println(item.Title)
-		fmt.Println(item.Link)
-		fmt.Println(item.PubDate)
-		fmt.Println(item.Description)
+	ticker := time.NewTicker(timeBetweenReqs)
+	for ; ; <-ticker.C {
+		err := scrapeFeeds(s)
+		if err != nil {
+			return fmt.Errorf("Could not scrape feed. Error: %w", err)
+		}
 	}
-	return nil
 }
 
 func handlerUsers(s *state, cmd command) error {
@@ -253,6 +253,34 @@ func handlerRegister(s *state, cmd command) error {
 
 	return nil
 }
+
+func scrapeFeeds(s *state) error {
+	feed, err := s.db.GetNextFeedToFetch(context.Background())
+	if err != nil {
+		return fmt.Errorf("Could not retrieve next feed from db. Error: %w", err)
+	}
+
+	markArgs := database.MarkFeedFetchedParams{
+		ID: feed.ID,
+		LastFetchedAt: sql.NullTime{
+			Time:  time.Now(),
+			Valid: true,
+		},
+	}
+	err = s.db.MarkFeedFetched(context.Background(), markArgs)
+	if err != nil {
+		return fmt.Errorf("Could not mark feed as fetched. Error: %w", err)
+	}
+
+	rssFeed, err := rssfeed.FetchFeed(context.Background(), feed.Url)
+	if err != nil {
+		return fmt.Errorf("Could not fetch feed with the url: %s. Error: %w", feed.Url, err)
+	}
+	for _, item := range rssFeed.Channel.Item {
+		fmt.Println(item.Title)
+	}
+	return nil
+}
 func main() {
 	cfg, err := config.Read()
 	if err != nil {
@@ -287,6 +315,9 @@ func main() {
 	commands.register("unfollow", middlewareLoggedIn(handlerUnfollow))
 	if len(os.Args) < 2 {
 		fmt.Println("No command given")
+		for key := range commands.plan {
+			fmt.Println(key)
+		}
 		os.Exit(1)
 	}
 
