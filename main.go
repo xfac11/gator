@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	"github.com/xfac11/gator/internal/config"
 	"github.com/xfac11/gator/internal/database"
@@ -48,6 +50,34 @@ func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) 
 		}
 		return handler(s, cmd, currentUser)
 	}
+}
+
+func handlerBrowse(s *state, cmd command, user database.User) error {
+	limit := 2
+	var err error
+	if len(cmd.arguments) == 1 {
+		limit, err = strconv.Atoi(cmd.arguments[0])
+		if err != nil {
+			return fmt.Errorf("Non valid 'limit' parameter. Error: %w", err)
+		}
+	}
+	postsArg := database.GetPostsForUserParams{
+		ID:    user.ID,
+		Limit: int32(limit),
+	}
+	posts, err := s.db.GetPostsForUser(context.Background(), postsArg)
+	if err != nil {
+		return fmt.Errorf("Could not retrieve posts for current user. Error: %w", err)
+	}
+	fmt.Println("Showing posts, limit:", limit)
+	for _, post := range posts {
+		fmt.Println(post.Title)
+		fmt.Println(post.PublishedAt)
+		fmt.Println(post.Url)
+		fmt.Println(post.Description)
+		fmt.Println()
+	}
+	return nil
 }
 
 func handlerUnfollow(s *state, cmd command, user database.User) error {
@@ -254,6 +284,19 @@ func handlerRegister(s *state, cmd command) error {
 	return nil
 }
 
+func parseRSSTimeString(date string) (time.Time, error) {
+	layouts := []string{time.RFC1123Z, time.RFC1123}
+
+	var err error
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, date)
+		if err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("Could not parse date/time string. Error: %w", err)
+}
+
 func scrapeFeeds(s *state) error {
 	feed, err := s.db.GetNextFeedToFetch(context.Background())
 	if err != nil {
@@ -277,7 +320,30 @@ func scrapeFeeds(s *state) error {
 		return fmt.Errorf("Could not fetch feed with the url: %s. Error: %w", feed.Url, err)
 	}
 	for _, item := range rssFeed.Channel.Item {
-		fmt.Println(item.Title)
+		pubAt, err := parseRSSTimeString(item.PubDate)
+		if err != nil {
+			return fmt.Errorf("Could not parse date. Error: %w", err)
+		}
+		postParam := database.CreatePostParams{
+			ID:          uuid.New(),
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+			Title:       item.Title,
+			Url:         item.Link,
+			Description: item.Description,
+			PublishedAt: pubAt,
+			FeedID:      feed.ID,
+		}
+		_, err = s.db.CreatePost(context.Background(), postParam)
+		if err != nil {
+			if pqerr, ok := err.(*pq.Error); ok {
+				if pqerr.Code.Name() == "unique_violation" {
+					continue
+				} else {
+					fmt.Println("Error creating post. Error: %w", err)
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -313,6 +379,7 @@ func main() {
 	commands.register("follow", middlewareLoggedIn(handlerFollow))
 	commands.register("following", middlewareLoggedIn(handlerFollowing))
 	commands.register("unfollow", middlewareLoggedIn(handlerUnfollow))
+	commands.register("browse", middlewareLoggedIn(handlerBrowse))
 	if len(os.Args) < 2 {
 		fmt.Println("No command given")
 		for key := range commands.plan {

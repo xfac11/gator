@@ -77,7 +77,7 @@ SELECT posts.id, posts.created_at, posts.updated_at, posts.title, posts.url, pos
 FROM feed_follows
 INNER JOIN feeds ON feed_follows.feed_id = feeds.id
 INNER JOIN users ON feed_follows.user_id = users.id
-INNER JOIN posts ON feed_follows.feed_id = posts.id
+INNER JOIN posts ON feed_follows.feed_id = posts.feed_id
 WHERE users.id = $1
 ORDER BY posts.published_at DESC
 LIMIT $2
